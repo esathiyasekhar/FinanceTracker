@@ -1,0 +1,7 @@
+streamlit
+pandas
+gspread
+oauth2client
+python-dateutil
+pdfplumber
+openpyxl
