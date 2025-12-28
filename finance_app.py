@@ -205,22 +205,15 @@ def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
             changes_made = True
             
         # 2. Process Edits (Rows that are NOT marked for delete)
-        # We compare edited_df vs df_display (original)
-        # Note: In a production app, we'd do a deeper diff. 
-        # Here, we will rewrite the sheet if there are NO deletions to ensure edits capture.
-        # If deletions happened, we force a rerun first to clean up.
-        
         if not to_delete.empty:
             st.success("Deleted rows. Refreshing...")
             time.sleep(1)
             st.rerun()
         else:
-            # Check for edits
-            # Drop the 'Delete' column before saving back
+            # Check for edits by dropping Delete col
             final_df = edited_df.drop(columns=["Delete"])
             
-            # Simple check: If dataframe values changed, update full sheet
-            # (Filtering by sheet specific columns to match schema)
+            # If dataframe values changed, update full sheet
             if not final_df.equals(df):
                 update_full_sheet(sh, sheet_name, final_df)
                 st.success("Changes Saved!")
@@ -361,11 +354,10 @@ def main():
                             add_row(sh, "Card_Payments", [pid, row['ID'], year, month, str(date.today()), amt, nt])
                             st.success("Paid"); time.sleep(1); st.rerun()
                     
-                    # 3. EDIT/DELETE PAYMENTS (NEW)
+                    # 3. EDIT/DELETE PAYMENTS
                     st.divider()
                     st.write("📝 **Edit/Delete Past Payments**")
                     if not hist_df.empty:
-                        # Use our new helper to render the editable grid
                         render_editable_grid(sh, hist_df, "Card_Payments", f"grid_cp_{row['ID']}", hidden_cols=["CardID", "Year", "Month"])
                     else:
                         st.info("No payments recorded for this month.")
@@ -408,12 +400,11 @@ def main():
         with tab_view:
             active = loans[loans['Status'] == 'Active']
             for _, row in active.iterrows():
-                # EMI Logic: Check Loan_Repayments for this LoanID + Month + Year
                 matches = repay[(repay['LoanID'] == row['ID'])]
                 is_paid = False
                 month_payment = None
                 
-                # Filter matches for current month in Python
+                # Filter matches for current month
                 for _, r in matches.iterrows():
                     pd_date = safe_date(r['PaymentDate'])
                     if pd_date and pd_date.year == year and pd_date.strftime("%B") == month:
@@ -434,7 +425,7 @@ def main():
                 </div>""", unsafe_allow_html=True)
                 
                 with st.expander(f"Details & Payments - {row['Source']}"):
-                    # 1. Pay Button (if not paid)
+                    # 1. Pay Button
                     if not is_paid:
                         with st.form(f"lp_{row['ID']}"):
                             p_amt = st.number_input("Amount", value=float(safe_float(row['EMI'])))
@@ -449,13 +440,8 @@ def main():
                     # 2. EDIT/DELETE LOAN PAYMENTS
                     st.divider()
                     st.write("📝 **History & Edits (This Month)**")
-                    
-                    # Filter for display in editor
                     if not matches.empty:
-                        # Show all history for this loan or just this month? 
-                        # User asked for monthly payment details, so showing this month's entry for editing is best
                         curr_matches = matches[matches['PaymentDate'].apply(lambda x: safe_date(x).strftime("%Y-%B") == f"{year}-{month}" if safe_date(x) else False)]
-                        
                         if not curr_matches.empty:
                             render_editable_grid(sh, curr_matches, "Loan_Repayments", f"grid_lp_{row['ID']}", hidden_cols=["LoanID"])
                         else:
@@ -463,7 +449,6 @@ def main():
         
         with tab_manage:
             action = st.radio("Action", ["Add New", "Edit Existing", "Delete"], horizontal=True)
-            # (Standard Manage Logic as before)
             if action == "Add New":
                 with st.form("add_l"):
                     src = st.text_input("Source"); typ = st.text_input("Type")
@@ -505,18 +490,14 @@ def main():
             active = emis[emis['Status']=='Active']
             
             for _, row in active.iterrows():
-                # Check History for Payment in Current Month
                 is_paid = False
-                paid_amt = 0.0
                 if not emi_log.empty:
                     log_match = emi_log[
                         (emi_log['EMI_ID'] == row['ID']) & 
                         (emi_log['Year'] == year) & 
                         (emi_log['Month'] == month)
                     ]
-                    if not log_match.empty:
-                        is_paid = True
-                        paid_amt = log_match['Amount'].apply(safe_float).sum()
+                    if not log_match.empty: is_paid = True
 
                 style = "emi-box-paid" if is_paid else "emi-box-due"
                 icon = "✅ PAID" if is_paid else "❌ UNPAID"
@@ -532,14 +513,12 @@ def main():
                 </div>""", unsafe_allow_html=True)
                 
                 with st.expander(f"Manage Payment - {row['Item']}"):
-                    # 1. Pay Button
                     if not is_paid:
                         if st.button(f"Mark Paid (₹{row['MonthlyEMI']})", key=f"pay_emi_{row['ID']}"):
                             log_id = get_next_id(emi_log)
                             add_row(sh, "EMI_Log", [log_id, int(row['ID']), str(date.today()), month, year, float(row['MonthlyEMI'])])
                             st.success("Marked Paid!"); time.sleep(1); st.rerun()
                     
-                    # 2. EDIT/DELETE HISTORY (NEW)
                     st.write("📝 **History (This Month)**")
                     if not emi_log.empty:
                         curr_logs = emi_log[
@@ -553,7 +532,7 @@ def main():
                             st.info("No payment log found.")
 
         with tab_manage:
-            action = st.radio("Action", ["Add New", "Edit Existing", "Delete"], horizontal=True)
+            action = st.radio("Action", ["Add New", "Delete"], horizontal=True)
             if action == "Add New":
                 with st.form("add_e"):
                     if cards.empty: st.error("No Cards"); st.stop()
@@ -573,11 +552,10 @@ def main():
                     delete_row_by_id(sh, "Active_EMIs", eid); st.success("Deleted"); st.rerun()
 
     # ==========================
-    # BANK ACCOUNTS & INCOME/EXP (With Edit Grid)
+    # BANK ACCOUNTS & INCOME/EXP
     # ==========================
     elif choice == "Bank Accounts":
         st.title("🏦 Bank Accounts")
-        # (Standard code for Banks - No transaction list here usually, so simple manage tab is fine)
         banks = get_df(sh, "Banks")
         tab_view, tab_manage = st.tabs(["Balances", "Manage"])
         with tab_view:
@@ -621,13 +599,10 @@ def main():
         with tab_view:
             tx = get_df(sh, "Transactions")
             curr_tx = tx[(tx['Year']==year)&(tx['Month']==month)]
-            
             st.write("📝 **Edit/Delete Transactions**")
-            # Render the Editable Grid for Transactions
             render_editable_grid(sh, curr_tx, "Transactions", "grid_tx", hidden_cols=["Year", "Month"])
 
         with tab_manage:
-            # Simple Add Form (since editing is now in the grid)
             with st.form("new_tx"):
                 tt = st.selectbox("Type", ["Expense", "Income"])
                 cat = st.text_input("Category"); amt = st.number_input("Amount"); nt = st.text_input("Notes")
@@ -637,7 +612,6 @@ def main():
                     st.success("Added"); st.rerun()
         
         with tab_upload:
-            # (Same upload logic as before)
             st.subheader("Smart Upload")
             cards = get_df(sh, "Cards"); banks = get_df(sh, "Banks")
             match_map = {}
