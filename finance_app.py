@@ -6,7 +6,6 @@ from datetime import datetime, date
 import time
 import re
 import pdfplumber
-from io import BytesIO
 
 # ==========================================
 # 1. VISUAL STYLING & CSS
@@ -594,10 +593,6 @@ def render_bank_accounts(sh, year, month):
 # ==========================================
 
 def parse_statement_text_to_df(text: str) -> pd.DataFrame:
-    """
-    Very simple stub parser for PDF text.
-    Assumes lines like: DD-MM-YYYY  CATEGORY  -1234.56  Note...
-    """
     rows = []
     line_pattern = re.compile(
         r'(?P<date>\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+'
@@ -707,20 +702,17 @@ def render_transactions(sh, year, month):
             # --- Excel branch (xls / xlsx) ---
             else:
                 try:
-                    data_bytes = uploaded.read()
-                    bio = BytesIO(data_bytes)
-
+                    # IMPORTANT: do NOT call uploaded.read() before this
                     if file_ext == "xlsx":
-                        df_raw = pd.read_excel(bio, engine="openpyxl")
+                        df_raw = pd.read_excel(uploaded, engine="openpyxl")
                     else:  # xls
-                        df_raw = pd.read_excel(bio, engine="xlrd")
+                        df_raw = pd.read_excel(uploaded, engine="xlrd")
 
                     if df_raw.empty:
                         st.warning("Excel file appears to be empty.")
                     else:
                         df = df_raw.copy()
 
-                        # Try to normalize/guess columns
                         col_map = {}
                         for col in df.columns:
                             lc = str(col).strip().lower()
@@ -739,7 +731,8 @@ def render_transactions(sh, year, month):
 
                         rows = []
                         for _, r in df.iterrows():
-                            dt = safe_date(r.get("Date"))
+                            dt_val = r.get("Date")
+                            dt = safe_date(dt_val)
                             if not dt:
                                 continue
                             amt = safe_float(r.get("Amount"))
