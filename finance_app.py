@@ -631,7 +631,7 @@ def main():
                 if st.button("Process"):
                     try:
                         if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
-                        else: df = pd.read_excel(uploaded_file)
+                        else: df = pd.read_excel(uploaded_file, engine='openpyxl')
                         df.columns = df.columns.str.lower()
                         d_col = next((c for c in df.columns if 'date' in c), None)
                         a_col = next((c for c in df.columns if 'amount' in c or 'debit' in c), None)
@@ -647,4 +647,5 @@ def main():
                     except Exception as e: st.error(str(e))
 
 if __name__ == "__main__":
+
     main()
