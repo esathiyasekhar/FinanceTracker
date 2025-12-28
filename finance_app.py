@@ -32,14 +32,11 @@ def safe_float(val):
 def safe_date(val):
     if not val or pd.isna(val): return None
     val = str(val).strip()
-    # Supports DD-MM-YYYY, YYYY-MM-DD, DD-MM-YY, and DD-Mon (e.g. 12-Jan)
     formats = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%Y/%m/%d", "%d-%b-%y", "%d-%m-%y", "%d-%b"]
     for fmt in formats:
         try: 
             dt = datetime.strptime(val, fmt)
-            # If date format has no year (e.g. 12-Jan), use current year
-            if "%Y" not in fmt and "%y" not in fmt:
-                dt = dt.replace(year=datetime.now().year)
+            if "%Y" not in fmt and "%y" not in fmt: dt = dt.replace(year=datetime.now().year)
             return dt.date()
         except: continue
     return None
@@ -48,8 +45,7 @@ def check_duplicate(df, col_name, value, label="Entry", exclude_id=None):
     if df.empty or col_name not in df.columns: return False
     if exclude_id: df = df[df['ID'].astype(str) != str(exclude_id)]
     existing = df[col_name].astype(str).str.strip().str.lower().tolist()
-    new_val = str(value).strip().lower()
-    if new_val in existing:
+    if str(value).strip().lower() in existing:
         st.error(f"❌ Duplicate: {label} '{value}' exists!"); return True
     return False
 
@@ -59,19 +55,14 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 @st.cache_resource
 def connect_gsheets():
     try:
-        # Tries Streamlit Secrets first (for Cloud), then local file (for PC)
         if "gcp_service_account" in st.secrets:
             creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
         else:
             creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", SCOPE)
-        client = gspread.authorize(creds)
-        return client.open("MyFinanceDB") 
-    except Exception as e:
-        st.error(f"❌ Auth Error: {e}")
-        st.stop()
+        return gspread.authorize(creds).open("MyFinanceDB") 
+    except Exception as e: st.error(f"❌ Auth Error: {e}"); st.stop()
 
 def api_retry(func, *args, **kwargs):
-    """Retries API call if we hit the Google Quota limit (429 Error)."""
     for i in range(5):
         try: return func(*args, **kwargs)
         except Exception as e:
@@ -103,7 +94,7 @@ def get_df(sh, name):
         }
         if df.empty and name in required_cols: return pd.DataFrame(columns=required_cols[name])
         if name in required_cols:
-            for c in required_cols[name]:
+            for c in required_cols[name]: 
                 if c not in df.columns: df[c] = ""
         return df
     except: return pd.DataFrame()
@@ -150,7 +141,6 @@ def delete_row_by_id(sh, sheet_name, id_val):
     except: return False
 
 def init_sheets(sh):
-    # Optimized Init to respect Quota
     schema = {
         "Config": ["Key", "Value"],
         "Cards": ["ID", "Name", "First4", "Last4", "Limit", "GraceDays", "MatchCode"], 
@@ -169,14 +159,13 @@ def init_sheets(sh):
     try: 
         ws_list = api_retry(sh.worksheets)
         existing = [w.title for w in ws_list]
-    except: 
-        existing = []
+    except: existing = []
 
     for name, cols in schema.items():
         if name not in existing:
             ws = api_retry(sh.add_worksheet, title=name, rows=100, cols=20)
             api_retry(ws.append_row, cols)
-            time.sleep(1) # Pause to respect quota
+            time.sleep(1)
         else:
             ws = api_retry(sh.worksheet, name)
             try: headers = api_retry(ws.row_values, 1)
@@ -190,7 +179,6 @@ def init_sheets(sh):
 
 # --- 4. GRID EDITOR HELPER ---
 def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
-    """Renders a dataframe as an editable UI with Delete capability."""
     if df.empty:
         st.info("No records found.")
         return
@@ -232,9 +220,9 @@ def main():
     inject_custom_css()
     sh = connect_gsheets()
     
-    if 'init_final_v2' not in st.session_state:
+    if 'init_v15' not in st.session_state:
         init_sheets(sh)
-        st.session_state['init_final_v2'] = True
+        st.session_state['init_v15'] = True
     
     st.sidebar.title("☁️ Finance Hub")
     c1, c2 = st.sidebar.columns(2)
@@ -269,7 +257,6 @@ def main():
             unbilled = curr_stmts['Unbilled'].apply(safe_float).sum()
         
         my_liab = (bill - paid) + unbilled
-        
         k1, k2, k3 = st.columns(3)
         k1.metric("Net Liquidity", f"₹{liq:,.0f}")
         k2.metric("Pending Bills", f"₹{bill-paid:,.0f}", delta_color="inverse")
@@ -281,7 +268,6 @@ def main():
     elif choice == "Credit Cards":
         st.title("💳 Credit Cards")
         cards = get_df(sh, "Cards")
-        
         tab_view, tab_manage = st.tabs(["Overview & Payments", "Manage Cards"])
         
         with tab_view:
@@ -290,12 +276,13 @@ def main():
             cpays = get_df(sh, "Card_Payments")
             
             for _, row in cards.iterrows():
+                # --- FIX START: Define hist_df here, outside the if block ---
+                hist_df = cpays[(cpays['CardID'] == row['ID']) & (cpays['Year'] == year) & (cpays['Month'] == month)]
+                # --- FIX END ---
+
                 match = stmts[(stmts['CardID'] == row['ID']) & (stmts['Year'] == year) & (stmts['Month'] == month)]
                 curr_b=0.0; curr_p=0.0; curr_d=""; curr_stmt_dt=""; curr_unb=0.0; curr_unb_dt=""
                 
-                # Pre-initialize history to prevent UnboundLocalError
-                hist_df = cpays[(cpays['CardID'] == row['ID']) & (cpays['Year'] == year) & (cpays['Month'] == month)]
-
                 if not match.empty:
                     r = match.iloc[0]
                     curr_b = safe_float(r['Billed'])
@@ -481,7 +468,6 @@ def main():
         emis = get_df(sh, "Active_EMIs")
         emi_log = get_df(sh, "EMI_Log")
         cards = get_df(sh, "Cards")
-        
         tab_view, tab_manage = st.tabs(["Active", "Manage"])
         
         with tab_view:
@@ -491,11 +477,7 @@ def main():
             for _, row in active.iterrows():
                 is_paid = False
                 if not emi_log.empty:
-                    log_match = emi_log[
-                        (emi_log['EMI_ID'] == row['ID']) & 
-                        (emi_log['Year'] == year) & 
-                        (emi_log['Month'] == month)
-                    ]
+                    log_match = emi_log[(emi_log['EMI_ID'] == row['ID']) & (emi_log['Year'] == year) & (emi_log['Month'] == month)]
                     if not log_match.empty: is_paid = True
 
                 style = "emi-box-paid" if is_paid else "emi-box-due"
@@ -520,11 +502,7 @@ def main():
                     
                     st.write("📝 **History (This Month)**")
                     if not emi_log.empty:
-                        curr_logs = emi_log[
-                            (emi_log['EMI_ID'] == row['ID']) & 
-                            (emi_log['Year'] == year) & 
-                            (emi_log['Month'] == month)
-                        ]
+                        curr_logs = emi_log[(emi_log['EMI_ID'] == row['ID']) & (emi_log['Year'] == year) & (emi_log['Month'] == month)]
                         if not curr_logs.empty:
                             render_editable_grid(sh, curr_logs, "EMI_Log", f"grid_elog_{row['ID']}", hidden_cols=["EMI_ID", "Month", "Year"])
                         else:
@@ -551,7 +529,7 @@ def main():
                     delete_row_by_id(sh, "Active_EMIs", eid); st.success("Deleted"); st.rerun()
 
     # ==========================
-    # BANK ACCOUNTS & INCOME/EXP
+    # BANK ACCOUNTS
     # ==========================
     elif choice == "Bank Accounts":
         st.title("🏦 Bank Accounts")
@@ -591,6 +569,9 @@ def main():
                     bid = banks[banks['Name']==del_b].iloc[0]['ID']
                     delete_row_by_id(sh, "Banks", bid); st.success("Deleted"); st.rerun()
 
+    # ==========================
+    # INCOME / EXP
+    # ==========================
     elif choice == "Income/Exp":
         st.title("💸 Income & Expenses")
         tab_view, tab_manage, tab_upload = st.tabs(["History (Editable)", "Add Manual", "Upload"])
@@ -624,30 +605,27 @@ def main():
             if st.button("Process") and uploaded_file:
                 try:
                     df = None
-                    final_src = st.text_input("Confirm Source", value="Unknown") # User confirms after visual check
-                    
-                    # 1. AUTO-MATCH FILENAME
+                    final_src = st.text_input("Confirm Source", value="Unknown")
+                    uploaded_file.seek(0)
                     for code, name in match_map.items():
                         if code in uploaded_file.name: final_src = name; st.success(f"Matched: {name}"); break
 
-                    # 2. FILE PROCESSING
                     if uploaded_file.name.lower().endswith('.csv'):
                         df = pd.read_csv(uploaded_file)
                     
                     elif uploaded_file.name.lower().endswith(('.xlsx', '.xls')):
                         try: df = pd.read_excel(uploaded_file, engine='openpyxl')
                         except: 
+                            uploaded_file.seek(0)
                             try: df = pd.read_excel(uploaded_file, engine='xlrd')
                             except: 
+                                uploaded_file.seek(0)
                                 try: df = pd.read_html(uploaded_file)[0]
                                 except: pass
                     
                     elif uploaded_file.name.lower().endswith('.pdf'):
-                        # PDF Logic using pdfplumber
                         with pdfplumber.open(uploaded_file) as pdf:
                             text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
-                            # Simple regex to find dates and amounts
-                            # Pattern: DD-MM-YYYY or DD/MM/YYYY followed by Amount
                             pat = r"(\d{2}[-/]\d{2}[-/]\d{2,4}).*?([\d,]+\.\d{2})"
                             matches = re.findall(pat, text)
                             entries = []
@@ -655,13 +633,11 @@ def main():
                                 dt_val = safe_date(dt_str) or date.today()
                                 amt_val = safe_float(amt_str)
                                 entries.append([get_next_id(get_df(sh,"Transactions")), str(dt_val), year, month, "Expense", "PDF Upload", amt_val, "Imported", final_src])
-                            
                             if entries:
                                 ws = api_retry(sh.worksheet, "Transactions"); ws.append_rows(entries); clear_cache()
                                 st.success(f"Added {len(entries)} from PDF"); st.rerun()
                             else: st.warning("No patterns found in PDF.")
 
-                    # 3. DATAFRAME PROCESSING (Excel/CSV)
                     if df is not None and not df.empty:
                         df.columns = df.columns.astype(str).str.lower()
                         d_col = next((c for c in df.columns if 'date' in c), None)
