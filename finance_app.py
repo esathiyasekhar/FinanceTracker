@@ -30,42 +30,32 @@ def inject_custom_css():
 # ==========================================
 
 def safe_float(val):
-    if pd.isna(val) or str(val).strip() == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return round(float(val), 2)
+    if pd.isna(val) or str(val).strip() == "": return 0.0
+    if isinstance(val, (int, float)): return round(float(val), 2)
     clean = re.sub(r'[^\d.-]', '', str(val))
-    try:
-        return round(float(clean), 2)
-    except ValueError:
-        return 0.0
+    try: return round(float(clean), 2)
+    except ValueError: return 0.0
 
 def safe_date(val):
-    if not val or pd.isna(val) or str(val).strip() == "":
-        return None
+    if not val or pd.isna(val) or str(val).strip() == "": return None
     val = str(val).strip()
     formats = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%Y/%m/%d", "%d-%b-%y", "%d-%m-%y", "%d-%b"]
     for fmt in formats:
         try:
             dt = datetime.strptime(val, fmt)
-            if "%Y" not in fmt and "%y" not in fmt:
-                dt = dt.replace(year=datetime.now().year)
+            if "%Y" not in fmt and "%y" not in fmt: dt = dt.replace(year=datetime.now().year)
             return dt.date()
-        except ValueError:
-            continue
+        except ValueError: continue
     return None
 
 def get_next_id(df):
-    if df.empty or 'ID' not in df.columns:
-        return 1
+    if df.empty or 'ID' not in df.columns: return 1
     ids = pd.to_numeric(df['ID'], errors='coerce').fillna(0)
     return int(ids.max()) + 1 if not ids.empty else 1
 
 def check_duplicate(df, col_name, value, label="Entry", exclude_id=None):
-    if df.empty or col_name not in df.columns:
-        return False
-    if exclude_id:
-        df = df[df['ID'].astype(str) != str(exclude_id)]
+    if df.empty or col_name not in df.columns: return False
+    if exclude_id: df = df[df['ID'].astype(str) != str(exclude_id)]
     existing = df[col_name].astype(str).str.strip().str.lower().tolist()
     if str(value).strip().lower() in existing:
         st.error(f"❌ Duplicate Error: {label} '{value}' already exists.")
@@ -92,8 +82,7 @@ def connect_gsheets():
 
 def api_retry(func, *args, **kwargs):
     for i in range(5):
-        try:
-            return func(*args, **kwargs)
+        try: return func(*args, **kwargs)
         except Exception as e:
             if "429" in str(e):
                 time.sleep((i + 1) * 1.5)
@@ -105,8 +94,7 @@ def api_retry(func, *args, **kwargs):
 def fetch_sheet_data_cached(_sh, sheet_name):
     return api_retry(_sh.worksheet, sheet_name).get_all_records()
 
-def clear_cache():
-    st.cache_data.clear()
+def clear_cache(): st.cache_data.clear()
 
 def get_df(sh, name):
     required_cols = {
@@ -125,11 +113,9 @@ def get_df(sh, name):
         data = fetch_sheet_data_cached(sh, name)
         df = pd.DataFrame(data)
         if name in required_cols:
-            if df.empty:
-                return pd.DataFrame(columns=required_cols[name])
+            if df.empty: return pd.DataFrame(columns=required_cols[name])
             for c in required_cols[name]:
-                if c not in df.columns:
-                    df[c] = ""
+                if c not in df.columns: df[c] = ""
         return df
     except gspread.WorksheetNotFound:
         return pd.DataFrame(columns=required_cols.get(name, []))
@@ -140,8 +126,7 @@ def update_full_sheet(sh, name, df):
     ws = api_retry(sh.worksheet, name)
     ws.clear()
     ws.append_row(df.columns.tolist())
-    if not df.empty:
-        ws.append_rows(df.values.tolist())
+    if not df.empty: ws.append_rows(df.values.tolist())
     clear_cache()
 
 def add_row(sh, name, row):
@@ -151,11 +136,9 @@ def add_row(sh, name, row):
 
 def update_row_by_id(sh, name, id_val, updated_dict, df_current):
     idx_list = df_current.index[df_current['ID'].astype(str) == str(id_val)].tolist()
-    if not idx_list:
-        return False
+    if not idx_list: return False
     idx = idx_list[0]
-    for col, val in updated_dict.items():
-        df_current.at[idx, col] = val
+    for col, val in updated_dict.items(): df_current.at[idx, col] = val
     update_full_sheet(sh, name, df_current)
     return True
 
@@ -169,8 +152,7 @@ def delete_row_by_id(sh, sheet_name, id_val):
             clear_cache()
             return True
         return False
-    except Exception:
-        return False
+    except Exception: return False
 
 def init_sheets(sh):
     schema = {
@@ -190,8 +172,7 @@ def init_sheets(sh):
     try:
         ws_list = api_retry(sh.worksheets)
         existing = [w.title for w in ws_list]
-    except Exception:
-        existing = []
+    except Exception: existing = []
 
     for name, cols in schema.items():
         if name not in existing:
@@ -200,16 +181,12 @@ def init_sheets(sh):
                 api_retry(ws.append_row, cols)
                 time.sleep(0.5)
             except gspread.exceptions.APIError as e:
-                if "400" in str(e) or "already exists" in str(e).lower():
-                    pass
-                else:
-                    raise e
+                if "400" in str(e) or "already exists" in str(e).lower(): pass
+                else: raise e
         else:
             ws = api_retry(sh.worksheet, name)
-            try:
-                headers = api_retry(ws.row_values, 1)
-            except Exception:
-                headers = []
+            try: headers = api_retry(ws.row_values, 1)
+            except Exception: headers = []
             new_headers = [c for c in cols if c not in headers]
             for i, h in enumerate(new_headers):
                 api_retry(ws.update_cell, 1, len(headers) + i + 1, h)
@@ -228,8 +205,7 @@ def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
     df_display["Delete"] = False
 
     col_config = {"Delete": st.column_config.CheckboxColumn(required=True)}
-    for h in hidden_cols:
-        col_config[h] = None
+    for h in hidden_cols: col_config[h] = None
 
     edited_df = st.data_editor(
         df_display,
@@ -242,7 +218,6 @@ def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
 
     if st.button("💾 Save Changes", key=f"btn_{key_prefix}"):
         to_delete = edited_df[edited_df["Delete"] == True]
-
         if not to_delete.empty:
             for _, row in to_delete.iterrows():
                 delete_row_by_id(sh, sheet_name, row['ID'])
@@ -255,11 +230,9 @@ def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
         if not final_cmp.equals(original_cmp):
             update_full_sheet(sh, sheet_name, final_df)
             st.toast("💾 Changes synced!", icon="✅")
-            time.sleep(1)
-            st.rerun()
+            time.sleep(1); st.rerun()
         elif not to_delete.empty:
-            time.sleep(1)
-            st.rerun()
+            time.sleep(1); st.rerun()
         else:
             st.info("No changes detected.")
 
@@ -278,9 +251,7 @@ def render_dashboard(sh, year, month):
             curr_bk = bk[(bk['Year'] == year) & (bk['Month'] == month)]
             liq = curr_bk['Balance'].apply(safe_float).sum()
 
-        bill = 0
-        paid = 0
-        unbilled = 0
+        bill = 0; paid = 0; unbilled = 0
         if not stmts.empty:
             curr_stmts = stmts[(stmts['Year'] == year) & (stmts['Month'] == month)].copy()
             if not curr_stmts.empty:
@@ -312,12 +283,7 @@ def render_credit_cards(sh, year, month):
             hist_df = cpays[(cpays['CardID'] == row['ID']) & (cpays['Year'] == year) & (cpays['Month'] == month)]
             match = stmts[(stmts['CardID'] == row['ID']) & (stmts['Year'] == year) & (stmts['Month'] == month)]
 
-            curr_b = 0.0
-            curr_p = 0.0
-            curr_d = ""
-            curr_stmt_dt = ""
-            curr_unb = 0.0
-            curr_unb_dt = ""
+            curr_b = 0.0; curr_p = 0.0; curr_d = ""; curr_stmt_dt = ""; curr_unb = 0.0; curr_unb_dt = ""
             if not match.empty:
                 r = match.iloc[0]
                 curr_b = safe_float(r['Billed'])
@@ -331,12 +297,9 @@ def render_credit_cards(sh, year, month):
             rem = max(0, curr_b - curr_p)
             status_cls = "neutral-bg"
             if curr_b > 0:
-                if rem <= 1:
-                    status_cls = "paid-bg"
-                elif safe_date(curr_d) and (safe_date(curr_d) - date.today()).days < 0:
-                    status_cls = "overdue-bg"
-                else:
-                    status_cls = "due-bg"
+                if rem <= 1: status_cls = "paid-bg"
+                elif safe_date(curr_d) and (safe_date(curr_d) - date.today()).days < 0: status_cls = "overdue-bg"
+                else: status_cls = "due-bg"
 
             st.markdown(f"""
             <div class="card-container {status_cls}">
@@ -353,7 +316,6 @@ def render_credit_cards(sh, year, month):
                     s_dt = c1.date_input("Stmt Date", value=safe_date(curr_stmt_dt))
                     d_dt = c2.date_input("Due Date", value=safe_date(curr_d) or date.today())
                     b_amt = c3.number_input("Bill Amt", value=curr_b)
-
                     st.markdown("---")
                     u1, u2 = st.columns(2)
                     u_amt = u1.number_input("Unbilled Amt", value=curr_unb)
@@ -361,69 +323,39 @@ def render_credit_cards(sh, year, month):
 
                     if st.form_submit_button("💾 Update Statement"):
                         if not stmts.empty:
-                            stmts = stmts[~((stmts['CardID'] == row['ID']) &
-                                            (stmts['Year'] == year) &
-                                            (stmts['Month'] == month))]
-                        new_row = {
-                            "CardID": row['ID'],
-                            "Year": year,
-                            "Month": month,
-                            "StmtDate": str(s_dt),
-                            "Billed": b_amt,
-                            "Unbilled": u_amt,
-                            "UnbilledDate": str(u_date),
-                            "Paid": curr_p,
-                            "DueDate": str(d_dt)
-                        }
+                            stmts = stmts[~((stmts['CardID'] == row['ID']) & (stmts['Year'] == year) & (stmts['Month'] == month))]
+                        new_row = {"CardID": row['ID'], "Year": year, "Month": month, "StmtDate": str(s_dt), "Billed": b_amt, "Unbilled": u_amt, "UnbilledDate": str(u_date), "Paid": curr_p, "DueDate": str(d_dt)}
                         stmts = pd.concat([stmts, pd.DataFrame([new_row])], ignore_index=True)
                         update_full_sheet(sh, "Statements", stmts)
                         st.toast("Statement updated!", icon="✅")
-                        time.sleep(1)
-                        st.rerun()
+                        time.sleep(1); st.rerun()
 
                 with st.form(f"p_{row['ID']}"):
                     c1, c2 = st.columns([1, 2])
                     p_amt = c1.number_input("Pay Amount", value=float(rem))
                     nt = c2.text_input("Notes")
                     if st.form_submit_button("💸 Record Payment"):
-                        add_row(
-                            sh,
-                            "Card_Payments",
-                            [get_next_id(cpays), row['ID'], year, month, str(date.today()), p_amt, nt]
-                        )
+                        add_row(sh, "Card_Payments", [get_next_id(cpays), row['ID'], year, month, str(date.today()), p_amt, nt])
                         st.toast("Payment recorded!", icon="✅")
                         st.success(f"Recorded ₹{p_amt}")
-                        time.sleep(1)
-                        st.rerun()
+                        time.sleep(1); st.rerun()
 
-                render_editable_grid(
-                    sh,
-                    hist_df,
-                    "Card_Payments",
-                    f"cpgrid_{row['ID']}",
-                    hidden_cols=["CardID", "Year", "Month"]
-                )
+                render_editable_grid(sh, hist_df, "Card_Payments", f"cpgrid_{row['ID']}", hidden_cols=["CardID", "Year", "Month"])
 
     with tab_manage:
         action = st.radio("Action", ["Add", "Delete"], horizontal=True)
         if action == "Add":
             with st.form("add_c"):
-                n = st.text_input("Name")
-                mc = st.text_input("Match Code")
-                l = st.number_input("Limit", min_value=0.0, value=0.0, step=1000.0)
+                n = st.text_input("Name"); mc = st.text_input("Match Code"); l = st.number_input("Limit", min_value=0.0, value=0.0, step=1000.0)
                 if st.form_submit_button("Add Card"):
                     if not check_duplicate(cards, "Name", n):
                         add_row(sh, "Cards", [get_next_id(cards), n, "", "", l, 20, mc])
-                        st.toast("Card Added!", icon="🎉")
-                        st.success(f"Added {n}")
-                        time.sleep(1)
-                        st.rerun()
+                        st.toast("Card Added!", icon="🎉"); st.success(f"Added {n}"); time.sleep(1); st.rerun()
         else:
             del_n = st.selectbox("Select Card", cards['Name'].unique() if not cards.empty else [])
             if st.button("Delete"):
                 delete_row_by_id(sh, "Cards", cards[cards['Name'] == del_n].iloc[0]['ID'])
-                st.toast("Deleted!", icon="🗑️")
-                st.rerun()
+                st.toast("Deleted!", icon="🗑️"); st.rerun()
 
 def render_loans(sh, year, month):
     st.title("🏠 Loans")
@@ -433,60 +365,34 @@ def render_loans(sh, year, month):
 
     with tab_view:
         active = loans[loans['Status'] == 'Active']
-        if active.empty:
-            st.info("No active loans.")
+        if active.empty: st.info("No active loans.")
         for _, row in active.iterrows():
             matches = repay[repay['LoanID'] == row['ID']]
             is_paid = False
             curr_matches = pd.DataFrame()
             if not matches.empty:
-                curr_matches = matches[matches['PaymentDate'].apply(
-                    lambda x: safe_date(x) and safe_date(x).year == year and safe_date(x).strftime("%B") == month
-                )]
-                if not curr_matches.empty:
-                    is_paid = True
+                curr_matches = matches[matches['PaymentDate'].apply(lambda x: safe_date(x) and safe_date(x).year == year and safe_date(x).strftime("%B") == month)]
+                if not curr_matches.empty: is_paid = True
 
             style = "paid-bg" if is_paid else "overdue-bg"
-            st.markdown(
-                f"""<div class="card-container {style}">
+            st.markdown(f"""<div class="card-container {style}">
                 <b>{row['Source']} ({row['Type']})</b><br>
                 EMI: ₹{safe_float(row['EMI']):,.2f} | Bal: ₹{safe_float(row['Outstanding']):,.2f}
-                </div>""",
-                unsafe_allow_html=True
-            )
+                </div>""", unsafe_allow_html=True)
 
             with st.expander(f"Repay {row['Source']}"):
                 if st.button(f"Pay EMI (₹{row['EMI']})", key=f"emi_{row['ID']}", disabled=is_paid):
-                    add_row(
-                        sh,
-                        "Loan_Repayments",
-                        [get_next_id(repay), int(row['ID']), str(date.today()), float(row['EMI']), "EMI"]
-                    )
-                    update_row_by_id(
-                        sh,
-                        "Loans",
-                        row['ID'],
-                        {"Outstanding": max(0, safe_float(row['Outstanding']) - safe_float(row['EMI']))},
-                        loans
-                    )
-                    st.toast("Paid!", icon="✅")
-                    st.rerun()
+                    add_row(sh, "Loan_Repayments", [get_next_id(repay), int(row['ID']), str(date.today()), float(row['EMI']), "EMI"])
+                    update_row_by_id(sh, "Loans", row['ID'], {"Outstanding": max(0, safe_float(row['Outstanding']) - safe_float(row['EMI']))}, loans)
+                    st.toast("Paid!", icon="✅"); st.rerun()
                 render_editable_grid(sh, curr_matches, "Loan_Repayments", f"lp_{row['ID']}", hidden_cols=["LoanID"])
 
     with tab_manage:
         with st.form("add_l"):
-            src = st.text_input("Source")
-            typ = st.text_input("Type")
-            amt = st.number_input("Principal", min_value=0.0, step=1000.0)
-            emi = st.number_input("EMI", min_value=0.0, step=500.0)
+            src = st.text_input("Source"); typ = st.text_input("Type"); amt = st.number_input("Principal", min_value=0.0, step=1000.0); emi = st.number_input("EMI", min_value=0.0, step=500.0)
             if st.form_submit_button("Add Loan"):
-                add_row(
-                    sh,
-                    "Loans",
-                    [get_next_id(loans), src, typ, "", "", amt, 0, emi, 12, str(date.today()), amt, "Active", 5, ""]
-                )
-                st.toast("Loan Created!", icon="🎉")
-                st.rerun()
+                add_row(sh, "Loans", [get_next_id(loans), src, typ, "", "", amt, 0, emi, 12, str(date.today()), amt, "Active", 5, ""])
+                st.toast("Loan Created!", icon="🎉"); st.rerun()
 
 def render_active_emis(sh, year, month):
     st.title("📉 Active EMIs")
@@ -497,29 +403,14 @@ def render_active_emis(sh, year, month):
     tab_view, tab_manage = st.tabs(["Active", "Manage"])
     with tab_view:
         active = emis[emis['Status'] == 'Active']
-        if active.empty:
-            st.info("No Active EMIs")
+        if active.empty: st.info("No Active EMIs")
         for _, row in active.iterrows():
-            is_paid = not emi_log[
-                (emi_log['EMI_ID'] == row['ID']) &
-                (emi_log['Year'] == year) &
-                (emi_log['Month'] == month)
-            ].empty
+            is_paid = not emi_log[(emi_log['EMI_ID'] == row['ID']) & (emi_log['Year'] == year) & (emi_log['Month'] == month)].empty
             style = "paid-bg" if is_paid else "due-bg"
-            st.markdown(
-                f"""<div class="card-container {style}">
-                <b>{row['Item']}</b>: ₹{safe_float(row['MonthlyEMI']):,.2f}
-                </div>""",
-                unsafe_allow_html=True
-            )
+            st.markdown(f"""<div class="card-container {style}"><b>{row['Item']}</b>: ₹{safe_float(row['MonthlyEMI']):,.2f}</div>""", unsafe_allow_html=True)
             if not is_paid and st.button("Mark Paid", key=f"me_{row['ID']}"):
-                add_row(
-                    sh,
-                    "EMI_Log",
-                    [get_next_id(emi_log), int(row['ID']), str(date.today()), month, year, float(row['MonthlyEMI'])]
-                )
-                st.toast("Paid!", icon="✅")
-                st.rerun()
+                add_row(sh, "EMI_Log", [get_next_id(emi_log), int(row['ID']), str(date.today()), month, year, float(row['MonthlyEMI'])])
+                st.toast("Paid!", icon="✅"); st.rerun()
 
     with tab_manage:
         mode = st.radio("Mode", ["Add", "Delete"], horizontal=True)
@@ -529,30 +420,20 @@ def render_active_emis(sh, year, month):
             else:
                 with st.form("add_e"):
                     cn = st.selectbox("Card", cards['Name'].unique())
-                    it = st.text_input("Item")
-                    val = st.number_input("Total", min_value=0.0, step=500.0)
-                    mon = st.number_input("Monthly", min_value=0.0, step=500.0)
+                    it = st.text_input("Item"); val = st.number_input("Total", min_value=0.0, step=500.0); mon = st.number_input("Monthly", min_value=0.0, step=500.0)
                     if st.form_submit_button("Add Plan"):
                         cid = cards[cards['Name'] == cn].iloc[0]['ID']
-                        add_row(
-                            sh,
-                            "Active_EMIs",
-                            [get_next_id(emis), int(cid), it, "Self", val, mon, str(date.today()), 12, "Active"]
-                        )
-                        st.toast("EMI Added!", icon="🎉")
-                        st.rerun()
+                        add_row(sh, "Active_EMIs", [get_next_id(emis), int(cid), it, "Self", val, mon, str(date.today()), 12, "Active"])
+                        st.toast("EMI Added!", icon="🎉"); st.rerun()
         else:
             del_e = st.selectbox("Select", emis['Item'].unique() if not emis.empty else [])
             if st.button("Delete"):
-                delete_row_by_id(sh, "Active_EMIs", emis[emis['Item'] == del_e].iloc[0]['ID'])
-                st.toast("Deleted!")
-                st.rerun()
+                delete_row_by_id(sh, "Active_EMIs", emis[emis['Item'] == del_e].iloc[0]['ID']); st.toast("Deleted!"); st.rerun()
 
 def render_bank_accounts(sh, year, month):
     st.title("🏦 Bank Accounts")
     banks = get_df(sh, "Banks")
     tab_view, tab_manage = st.tabs(["Balances", "Manage"])
-
     with tab_view:
         bal_df = get_df(sh, "Bank_Balances")
         with st.form("bal_up"):
@@ -560,83 +441,79 @@ def render_bank_accounts(sh, year, month):
             for _, r in banks.iterrows():
                 curr = 0.0
                 if not bal_df.empty:
-                    match = bal_df[
-                        (bal_df['BankID'] == r['ID']) &
-                        (bal_df['Year'] == year) &
-                        (bal_df['Month'] == month)
-                    ]
-                    if not match.empty:
-                        curr = safe_float(match.iloc[0]['Balance'])
+                    match = bal_df[(bal_df['BankID'] == r['ID']) & (bal_df['Year'] == year) & (bal_df['Month'] == month)]
+                    if not match.empty: curr = safe_float(match.iloc[0]['Balance'])
                 updates[r['ID']] = st.number_input(f"{r['Name']}", value=curr)
             if st.form_submit_button("💾 Save Balances"):
                 df = get_df(sh, "Bank_Balances")
-                if not df.empty:
-                    df = df[~((df['Year'] == year) & (df['Month'] == month))]
-                new_rows = [{"BankID": bid, "Year": year, "Month": month, "Balance": val}
-                            for bid, val in updates.items()]
+                if not df.empty: df = df[~((df['Year'] == year) & (df['Month'] == month))]
+                new_rows = [{"BankID": bid, "Year": year, "Month": month, "Balance": val} for bid, val in updates.items()]
                 df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
                 update_full_sheet(sh, "Bank_Balances", df)
-                st.toast("Synced!", icon="✅")
-                st.success("Balances updated.")
-
+                st.toast("Synced!", icon="✅"); st.success("Balances updated.")
     with tab_manage:
         with st.form("add_b"):
-            bn = st.text_input("Name")
-            mc = st.text_input("Match Code")
+            bn = st.text_input("Name"); mc = st.text_input("Match Code")
             if st.form_submit_button("Add Bank"):
-                add_row(sh, "Banks", [get_next_id(banks), bn, "Savings", "", mc])
-                st.toast("Bank Added!", icon="🎉")
-                st.rerun()
+                add_row(sh, "Banks", [get_next_id(banks), bn, "Savings", "", mc]); st.toast("Bank Added!", icon="🎉"); st.rerun()
 
 # ==========================================
-# 5b. INCOME / EXPENSES (Smart Upload PDF + Excel)
+# 5b. INCOME / EXPENSES (Smart Upload PDF + ROBUST Excel)
 # ==========================================
 
 def parse_statement_text_to_df(text: str) -> pd.DataFrame:
     rows = []
-    line_pattern = re.compile(
-        r'(?P<date>\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+'
-        r'(?P<category>[A-Za-z ]+?)\s+'
-        r'(?P<amount>[-+]?\d[\d,]*\.?\d*)\s*(?P<note>.*)'
-    )
-
+    line_pattern = re.compile(r'(?P<date>\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+(?P<category>[A-Za-z ]+?)\s+(?P<amount>[-+]?\d[\d,]*\.?\d*)\s*(?P<note>.*)')
     for line in text.splitlines():
         m = line_pattern.search(line)
-        if not m:
-            continue
-        d_raw = m.group("date")
-        cat = m.group("category").strip()
-        amt_raw = m.group("amount")
-        note = m.group("note").strip()
-        dt = safe_date(d_raw)
-        if not dt:
-            continue
-        amt = safe_float(amt_raw)
-        typ = "Expense" if amt < 0 else "Income"
-        rows.append(
-            {
-                "Date": dt,
-                "Year": dt.year,
-                "Month": dt.strftime("%B"),
-                "Type": typ,
-                "Category": cat,
-                "Amount": abs(amt),
-                "Notes": note,
-                "SourceAccount": ""
-            }
-        )
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+        if not m: continue
+        dt = safe_date(m.group("date"))
+        if not dt: continue
+        amt = safe_float(m.group("amount"))
+        rows.append({
+            "Date": dt, "Year": dt.year, "Month": dt.strftime("%B"),
+            "Type": "Expense" if amt < 0 else "Income",
+            "Category": m.group("category").strip(),
+            "Amount": abs(amt), "Notes": m.group("note").strip(), "SourceAccount": ""
+        })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+def load_bank_statement(uploaded_file):
+    """
+    Tries multiple engines to load tricky bank statements (Fake XLSX, HTML, XLS).
+    """
+    # 1. Try standard XLSX (openpyxl)
+    try:
+        uploaded_file.seek(0)
+        return pd.read_excel(uploaded_file, engine='openpyxl')
+    except Exception: pass
+
+    # 2. Try old XLS (xlrd)
+    try:
+        uploaded_file.seek(0)
+        return pd.read_excel(uploaded_file, engine='xlrd')
+    except Exception: pass
+
+    # 3. Try HTML Table (fake xls/xlsx)
+    try:
+        uploaded_file.seek(0)
+        dfs = pd.read_html(uploaded_file)
+        if dfs: return dfs[0]
+    except Exception: pass
+
+    # 4. Try CSV
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, sep=None, engine='python')
+    except Exception: pass
+
+    return None
 
 def render_transactions(sh, year, month):
     st.title("💵 Income / Expenses")
-
     tx_df = get_df(sh, "Transactions")
-
     tab_quick, tab_smart, tab_view = st.tabs(["Quick Entry", "Smart Upload", "Transactions"])
 
-    # -------- Quick Entry --------
     with tab_quick:
         st.subheader("Quick manual entry")
         with st.form("quick_entry"):
@@ -644,189 +521,87 @@ def render_transactions(sh, year, month):
             dt = c1.date_input("Date", value=date.today())
             typ = c2.selectbox("Type", ["Income", "Expense"])
             cat = c3.text_input("Category")
-
             c4, c5 = st.columns(2)
             amt = c4.number_input("Amount", min_value=0.0, step=100.0)
             src = c5.text_input("Source Account", value="")
-
             note = st.text_input("Notes", value="")
-
             if st.form_submit_button("➕ Add Transaction"):
-                row = {
-                    "ID": get_next_id(tx_df),
-                    "Date": str(dt),
-                    "Year": dt.year,
-                    "Month": dt.strftime("%B"),
-                    "Type": typ,
-                    "Category": cat,
-                    "Amount": amt,
-                    "Notes": note,
-                    "SourceAccount": src
-                }
+                row = {"ID": get_next_id(tx_df), "Date": str(dt), "Year": dt.year, "Month": dt.strftime("%B"), "Type": typ, "Category": cat, "Amount": amt, "Notes": note, "SourceAccount": src}
                 new_df = pd.concat([tx_df, pd.DataFrame([row])], ignore_index=True)
                 update_full_sheet(sh, "Transactions", new_df)
-                st.toast("Transaction added!", icon="✅")
-                st.rerun()
+                st.toast("Transaction added!", icon="✅"); st.rerun()
 
-    # -------- Smart Upload: PDF + Excel --------
     with tab_smart:
         st.subheader("Smart upload from statement (PDF / Excel)")
-        uploaded = st.file_uploader(
-            "Upload statement file",
-            type=["pdf", "xls", "xlsx"],
-            key="stmt_upload"
-        )
+        uploaded = st.file_uploader("Upload statement file", type=["pdf", "xls", "xlsx"], key="stmt_upload")
         parse_btn = st.button("📄 Parse file")
-
         parsed_df = None
 
         if uploaded and parse_btn:
             file_ext = uploaded.name.split(".")[-1].lower()
-
-            # --- PDF branch ---
             if file_ext == "pdf":
                 try:
                     with pdfplumber.open(uploaded) as pdf:
-                        all_text = ""
-                        for page in pdf.pages:
-                            all_text += page.extract_text() or ""
+                        all_text = "".join([page.extract_text() or "" for page in pdf.pages])
                     parsed_df = parse_statement_text_to_df(all_text)
-                    if parsed_df is None or parsed_df.empty:
-                        st.warning("No transactions detected from PDF. Adjust parser regex for your bank format.")
-                    else:
-                        st.success(f"Detected {len(parsed_df)} candidate transactions from PDF.")
-                except Exception as e:
-                    st.error(f"Error while reading PDF: {e}")
-                    parsed_df = None
-
-            # --- Excel branch (xls / xlsx) ---
+                    if parsed_df.empty: st.warning("No transactions detected from PDF.")
+                    else: st.success(f"Detected {len(parsed_df)} candidate transactions.")
+                except Exception as e: st.error(f"Error reading PDF: {e}")
             else:
-                try:
-                    # IMPORTANT: do NOT call uploaded.read() before this
-                    if file_ext == "xlsx":
-                        df_raw = pd.read_excel(uploaded, engine="openpyxl")
-                    else:  # xls
-                        df_raw = pd.read_excel(uploaded, engine="xlrd")
+                # --- ROBUST EXCEL LOADER ---
+                df_raw = load_bank_statement(uploaded)
+                if df_raw is None or df_raw.empty:
+                    st.error("Failed to read file. It may be encrypted or an unsupported format.")
+                else:
+                    df = df_raw.copy()
+                    # Header Heuristic
+                    if not any(x in str(col).lower() for col in df.columns for x in ['date', 'txn']):
+                        for i, row in df.head(20).iterrows():
+                            if any('date' in s for s in row.astype(str).str.lower()):
+                                df.columns = row; df = df.iloc[i+1:]; break
+                    
+                    # Column Mapping
+                    col_map = {}
+                    for col in df.columns:
+                        lc = str(col).strip().lower()
+                        if "date" in lc: col_map[col] = "Date"
+                        elif any(x in lc for x in ["amount", "amt", "debit", "withdraw"]): col_map[col] = "Amount"
+                        elif any(x in lc for x in ["desc", "narration", "particulars"]): col_map[col] = "Notes"
+                    
+                    df = df.rename(columns=col_map)
+                    rows = []
+                    for _, r in df.iterrows():
+                        dt = safe_date(r.get("Date"))
+                        if not dt: continue
+                        amt = safe_float(r.get("Amount"))
+                        rows.append({
+                            "Date": dt, "Year": dt.year, "Month": dt.strftime("%B"),
+                            "Type": "Expense" if amt < 0 else "Income", # Logic assumes negative or debit column
+                            "Category": "Imported",
+                            "Amount": abs(amt), "Notes": str(r.get("Notes", "")), "SourceAccount": ""
+                        })
+                    parsed_df = pd.DataFrame(rows)
+                    if parsed_df.empty: st.warning("No valid rows found.")
+                    else: st.success(f"Detected {len(parsed_df)} transactions.")
 
-                    if df_raw.empty:
-                        st.warning("Excel file appears to be empty.")
-                    else:
-                        df = df_raw.copy()
-
-                        col_map = {}
-                        for col in df.columns:
-                            lc = str(col).strip().lower()
-                            if "date" in lc and "update" not in lc:
-                                col_map[col] = "Date"
-                            elif "amount" in lc or "amt" in lc:
-                                col_map[col] = "Amount"
-                            elif "desc" in lc or "narration" in lc or "details" in lc:
-                                col_map[col] = "Notes"
-                            elif lc in ("type", "drcr", "credit/debit"):
-                                col_map[col] = "Type"
-                            elif "category" in lc:
-                                col_map[col] = "Category"
-
-                        df = df.rename(columns=col_map)
-
-                        rows = []
-                        for _, r in df.iterrows():
-                            dt_val = r.get("Date")
-                            dt = safe_date(dt_val)
-                            if not dt:
-                                continue
-                            amt = safe_float(r.get("Amount"))
-                            note = str(r.get("Notes", "")).strip()
-                            cat = str(r.get("Category", "")).strip()
-
-                            typ_raw = str(r.get("Type", "")).strip().lower()
-                            if typ_raw in ("debit", "dr", "expense"):
-                                t_final = "Expense"
-                            elif typ_raw in ("credit", "cr", "income"):
-                                t_final = "Income"
-                            else:
-                                t_final = "Expense" if amt < 0 else "Income"
-
-                            rows.append({
-                                "Date": dt,
-                                "Year": dt.year,
-                                "Month": dt.strftime("%B"),
-                                "Type": t_final,
-                                "Category": cat,
-                                "Amount": abs(amt),
-                                "Notes": note,
-                                "SourceAccount": ""
-                            })
-
-                        if not rows:
-                            st.warning("No valid transaction rows detected in Excel. Check column mapping.")
-                        else:
-                            parsed_df = pd.DataFrame(rows)
-                            st.success(f"Detected {len(parsed_df)} candidate transactions from Excel.")
-                except ImportError:
-                    st.error("Excel engine missing. Install 'openpyxl' for .xlsx and 'xlrd<2.0' for .xls.")
-                    parsed_df = None
-                except Exception as e:
-                    st.error(f"Error while reading Excel: {e}")
-                    parsed_df = None
-
-        if 'parsed_upload_df' not in st.session_state:
-            st.session_state.parsed_upload_df = pd.DataFrame()
-
-        if parsed_df is not None and not parsed_df.empty:
-            st.session_state.parsed_upload_df = parsed_df
+        if 'parsed_upload_df' not in st.session_state: st.session_state.parsed_upload_df = pd.DataFrame()
+        if parsed_df is not None and not parsed_df.empty: st.session_state.parsed_upload_df = parsed_df
 
         if not st.session_state.parsed_upload_df.empty:
-            st.markdown("Review and edit detected transactions before saving:")
-            review_df = st.data_editor(
-                st.session_state.parsed_upload_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                hide_index=True
-            )
+            review_df = st.data_editor(st.session_state.parsed_upload_df, num_rows="dynamic", use_container_width=True, hide_index=True)
             if st.button("💾 Save to Transactions"):
-                if tx_df.empty:
-                    base = 1
-                else:
-                    base = get_next_id(tx_df)
-                review_df = review_df.copy()
+                base = get_next_id(tx_df)
                 review_df.insert(0, "ID", range(base, base + len(review_df)))
-                cols_order = ["ID", "Date", "Year", "Month", "Type", "Category", "Amount", "Notes", "SourceAccount"]
-                for c in cols_order:
-                    if c not in review_df.columns:
-                        review_df[c] = ""
-                review_df = review_df[cols_order]
+                for c in ["Type", "Category", "SourceAccount"]:
+                    if c not in review_df.columns: review_df[c] = ""
                 combined = pd.concat([tx_df, review_df], ignore_index=True)
                 update_full_sheet(sh, "Transactions", combined)
-                st.toast("Smart upload saved!", icon="✅")
-                st.session_state.parsed_upload_df = pd.DataFrame()
-                st.rerun()
+                st.toast("Smart upload saved!", icon="✅"); st.session_state.parsed_upload_df = pd.DataFrame(); st.rerun()
 
-    # -------- Transactions view / edit --------
     with tab_view:
         st.subheader("Browse / edit transactions")
-        if tx_df.empty:
-            st.info("No transactions recorded yet.")
-            return
-
-        f1, f2, f3, f4 = st.columns(4)
-        type_filter = f1.multiselect("Type", sorted(tx_df["Type"].dropna().unique().tolist()), default=None)
-        cat_filter = f2.multiselect("Category", sorted(tx_df["Category"].dropna().unique().tolist()), default=None)
-        src_filter = f3.multiselect("Source", sorted(tx_df["SourceAccount"].dropna().unique().tolist()), default=None)
-        year_filter = f4.multiselect("Year", sorted(tx_df["Year"].dropna().unique().tolist()), default=[year])
-
-        filt_df = tx_df.copy()
-        if type_filter:
-            filt_df = filt_df[filt_df["Type"].isin(type_filter)]
-        if cat_filter:
-            filt_df = filt_df[filt_df["Category"].isin(cat_filter)]
-        if src_filter:
-            filt_df = filt_df[filt_df["SourceAccount"].isin(src_filter)]
-        if year_filter:
-            filt_df = filt_df[filt_df["Year"].isin(year_filter)]
-
-        st.markdown(f"Showing {len(filt_df)} transactions")
-        render_editable_grid(sh, filt_df, "Transactions", "tx_grid", hidden_cols=[])
+        if tx_df.empty: st.info("No transactions recorded yet."); return
+        render_editable_grid(sh, tx_df[(tx_df["Year"] == year) & (tx_df["Month"] == month)], "Transactions", "tx_grid")
 
 # ==========================================
 # 6. MAIN APP LOOP
@@ -835,42 +610,24 @@ def render_transactions(sh, year, month):
 def main():
     st.set_page_config(page_title="Finance Hub", layout="wide", page_icon="📈")
     inject_custom_css()
-
     with st.status("🚀 System Check...", expanded=True) as status:
         sh = connect_gsheets()
-        if 'init_db' not in st.session_state:
-            init_sheets(sh)
-            st.session_state['init_db'] = True
+        if 'init_db' not in st.session_state: init_sheets(sh); st.session_state['init_db'] = True
         status.update(label="System Online", state="complete", expanded=False)
 
     st.sidebar.title("☁️ Finance Hub")
     curr_y = datetime.now().year
     year = st.sidebar.selectbox("Year", range(curr_y - 1, curr_y + 5), index=1)
-    month = st.sidebar.selectbox(
-        "Month",
-        ["January", "February", "March", "April", "May", "June",
-         "July", "August", "September", "October", "November", "December"],
-        index=datetime.now().month - 1
-    )
-
+    month = st.sidebar.selectbox("Month", ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], index=datetime.now().month - 1)
     choice = st.sidebar.radio("Go To", ["Dashboard", "Credit Cards", "Loans", "Active EMIs", "Bank Accounts", "Income/Expenses"])
+    if st.sidebar.button("🔄 Refresh Data"): clear_cache(); st.rerun()
 
-    if st.sidebar.button("🔄 Refresh Data"):
-        clear_cache()
-        st.rerun()
-
-    if choice == "Dashboard":
-        render_dashboard(sh, year, month)
-    elif choice == "Credit Cards":
-        render_credit_cards(sh, year, month)
-    elif choice == "Loans":
-        render_loans(sh, year, month)
-    elif choice == "Active EMIs":
-        render_active_emis(sh, year, month)
-    elif choice == "Bank Accounts":
-        render_bank_accounts(sh, year, month)
-    elif choice == "Income/Expenses":
-        render_transactions(sh, year, month)
+    if choice == "Dashboard": render_dashboard(sh, year, month)
+    elif choice == "Credit Cards": render_credit_cards(sh, year, month)
+    elif choice == "Loans": render_loans(sh, year, month)
+    elif choice == "Active EMIs": render_active_emis(sh, year, month)
+    elif choice == "Bank Accounts": render_bank_accounts(sh, year, month)
+    elif choice == "Income/Expenses": render_transactions(sh, year, month)
 
 if __name__ == "__main__":
     main()
