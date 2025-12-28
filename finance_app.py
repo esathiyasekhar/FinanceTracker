@@ -165,6 +165,7 @@ def delete_row_by_id(sh, sheet_name, id_val):
     except: return False
 
 def init_sheets(sh):
+    """Ensures all sheets and headers exist on startup."""
     schema = {
         "Config": ["Key", "Value"],
         "Cards": ["ID", "Name", "First4", "Last4", "Limit", "GraceDays", "MatchCode"], 
@@ -178,22 +179,40 @@ def init_sheets(sh):
         "Loan_Repayments": ["ID", "LoanID", "PaymentDate", "Amount", "Type"],
         "Card_Payments": ["ID", "CardID", "Year", "Month", "Date", "Amount", "Note"]
     }
+    
+    # 1. ROBUST FETCH: Do not silence errors. If this fails, we need to know.
     try: 
-        existing = [w.title for w in api_retry(sh.worksheets)]
-    except: existing = []
+        ws_list = api_retry(sh.worksheets)
+        existing = [w.title for w in ws_list]
+    except Exception as e:
+        # If we can't read the DB, stop immediately rather than trying to overwrite
+        st.error(f"⚠️ Failed to connect to Google Sheets: {str(e)}")
+        st.stop()
 
     for name, cols in schema.items():
         if name not in existing:
-            ws = api_retry(sh.add_worksheet, title=name, rows=100, cols=20)
-            api_retry(ws.append_row, cols); time.sleep(0.5)
+            try:
+                # Try to create the worksheet
+                ws = api_retry(sh.add_worksheet, title=name, rows=100, cols=20)
+                api_retry(ws.append_row, cols)
+                time.sleep(0.5) # Prevent rate limiting
+            except gspread.exceptions.APIError as e:
+                # If error is "Sheet already exists" (Code 400), ignore it and move on
+                if "400" in str(e) or "already exists" in str(e).lower():
+                    pass
+                else:
+                    raise e # Re-raise if it's a real permission/quota error
         else:
+            # Sync headers for existing sheets
             ws = api_retry(sh.worksheet, name)
             try: headers = api_retry(ws.row_values, 1)
             except: headers = []
+            
             new_headers = [c for c in cols if c not in headers]
-            for i, h in enumerate(new_headers):
-                api_retry(ws.update_cell, 1, len(headers) + i + 1, h); time.sleep(0.5)
-
+            if new_headers:
+                for i, h in enumerate(new_headers):
+                    api_retry(ws.update_cell, 1, len(headers) + i + 1, h)
+                    time.sleep(0.5)
 # ==========================================
 # 4. COMPONENT: EDITABLE GRID
 # ==========================================
@@ -580,3 +599,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
