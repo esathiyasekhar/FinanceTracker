@@ -443,111 +443,7 @@ def render_bank_accounts(sh, year, month):
                 add_row(sh, "Banks", [get_next_id(banks), bn, "Savings", "", mc])
                 st.toast("Bank Added!", icon="🎉"); st.rerun()
 
-def render_transactions(sh, year, month):
-    st.title("💸 Income & Expenses")
-    tab_hist, tab_man, tab_up = st.tabs(["History", "Manual Add", "Smart Upload"])
-    
-    with tab_hist:
-        tx = get_df(sh, "Transactions")
-        if not tx.empty:
-            curr_tx = tx[(tx['Year'] == year) & (tx['Month'] == month)]
-            
-            edited_df = st.data_editor(
-                curr_tx, key="tx_grid",
-                column_config={"Delete": st.column_config.CheckboxColumn(required=True), "Amount": st.column_config.NumberColumn(format="₹%.2f")},
-                hide_index=True, use_container_width=True, disabled=["ID"]
-            )
-            
-            if st.button("💾 Apply Grid Changes"):
-                to_delete = edited_df[edited_df["Delete"] == True]
-                if not to_delete.empty:
-                    st.warning(f"⚠️ You are about to delete {len(to_delete)} transactions.")
-                    if st.button("🔴 Confirm Permanent Deletion"):
-                        for _, row in to_delete.iterrows(): delete_row_by_id(sh, "Transactions", row['ID'])
-                        st.toast("🗑️ Deleted successfully!", icon="✅")
-                        time.sleep(1); st.rerun()
-                else:
-                    update_full_sheet(sh, "Transactions", edited_df.drop(columns=["Delete"]))
-                    st.toast("💾 Updates Saved!", icon="✅"); time.sleep(1); st.rerun()
-        else: st.info("No transactions.")
-
-    with tab_man:
-        with st.form("new_tx"):
-            c1, c2 = st.columns(2)
-            tt = c1.selectbox("Type", ["Expense", "Income"])
-            cat = c2.text_input("Category", placeholder="Food, Salary...")
-            c3, c4 = st.columns(2)
-            amt = c3.number_input("Amount", min_value=0.0)
-            dt = c4.date_input("Date", value=date.today())
-            nt = st.text_input("Notes")
-            
-            if st.form_submit_button("➕ Add Transaction"):
-                add_row(sh, "Transactions", [get_next_id(get_df(sh, "Transactions")), str(dt), dt.year, dt.strftime("%B"), tt, cat, amt, nt, "Manual"])
-                st.toast(f"✅ Saved ₹{amt} for {cat}")
-                st.success(f"**Added Successfully:** {tt} - {cat} - ₹{amt}")
-                time.sleep(1.5); st.rerun()
-
-    with tab_up:
-        st.subheader("Smart Import")
-        uploaded_file = st.file_uploader("Upload PDF/XLSX/CSV", type=['pdf', 'xlsx', 'xls', 'csv'])
-        
-        cards = get_df(sh, "Cards"); banks = get_df(sh, "Banks")
-        match_map = {str(r.get('MatchCode')).strip(): f"Card: {r['Name']}" for _, r in cards.iterrows() if str(r.get('MatchCode')).strip()}
-        match_map.update({str(r.get('MatchCode')).strip(): f"Bank: {r['Name']}" for _, r in banks.iterrows() if str(r.get('MatchCode')).strip()})
-        
-        if uploaded_file:
-            final_src = next((name for code, name in match_map.items() if code.lower() in uploaded_file.name.lower()), "Unknown")
-            final_src = st.text_input("Source", value=final_src)
-            
-            if st.button("Process File"):
-                try:
-                    entries = []; df = None
-                    ext = uploaded_file.name.split('.')[-1].lower()
-                    
-                    if ext == 'pdf':
-                        with pdfplumber.open(uploaded_file) as pdf:
-                            text = "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
-                            matches = re.findall(r"(\d{2}[-/]\d{2}[-/]\d{2,4}).*?([\d,]+\.?\d{0,2})", text)
-                            for d_str, a_str in matches:
-                                dv = safe_date(d_str); av = safe_float(a_str)
-                                if dv and av > 0: entries.append([get_next_id(get_df(sh,"Transactions")), str(dv), year, month, "Expense", "PDF Import", av, "Imported", final_src])
-                    else:
-                        # FIX #3: Fallback logic for Excel engine mismatches
-                        if ext == 'csv': 
-                            df = pd.read_csv(uploaded_file)
-                        elif ext in ['xlsx', 'xls']:
-                            # Try openpyxl first (for valid xlsx)
-                            try:
-                                df = pd.read_excel(uploaded_file, engine='openpyxl')
-                            except Exception:
-                                # Fallback to xlrd (for binary xls or masked xlsx)
-                                try:
-                                    uploaded_file.seek(0)
-                                    df = pd.read_excel(uploaded_file, engine='xlrd')
-                                except Exception as e:
-                                    st.error(f"Failed to read file. Error: {e}")
-                                    st.stop()
-                        
-                        if df is not None:
-                            df.columns = df.columns.astype(str).str.lower()
-                            d_col = next((c for c in df.columns if any(x in c for x in ['date', 'txn'])), None)
-                            a_col = next((c for c in df.columns if any(x in c for x in ['amount', 'debit', 'with'])), None)
-                            n_col = next((c for c in df.columns if any(x in c for x in ['desc', 'narration'])), None)
-                            
-                            if d_col and a_col:
-                                for _, r in df.iterrows():
-                                    dv = safe_date(r[d_col]); av = safe_float(r[a_col])
-                                    if dv and av > 0: entries.append([get_next_id(get_df(sh,"Transactions")), str(dv), year, month, "Expense", "Statement", av, str(r[n_col]) if n_col else "Import", final_src])
-                    
-                    if entries:
-                        api_retry(sh.worksheet("Transactions").append_rows, entries)
-                        clear_cache()
-                        st.toast(f"Imported {len(entries)} rows!", icon="🚀")
-                        st.success(f"**Success:** Imported {len(entries)} transactions from {uploaded_file.name}")
-                        time.sleep(2); st.rerun()
-                    else: st.error("No valid transactions found.")
-                except Exception as e: st.error(f"Error: {e}")
-
+render_transactions
 # ==========================================
 # 6. MAIN APP LOOP
 # ==========================================
@@ -579,3 +475,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
