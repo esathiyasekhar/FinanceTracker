@@ -14,27 +14,14 @@ import pdfplumber
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* Card Containers */
-        .card-container {
-            padding: 15px; 
-            border-radius: 10px; 
-            border: 1px solid #e0e0e0; 
-            margin-bottom: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        /* Status Colors */
+        .card-container { padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .paid-bg { background-color: #d4edda; border-left: 5px solid #28a745; color: #155724; }
         .due-bg { background-color: #fff3cd; border-left: 5px solid #ffc107; color: #856404; }
         .overdue-bg { background-color: #f8d7da; border-left: 5px solid #dc3545; color: #721c24; }
         .neutral-bg { background-color: #f8f9fa; border-left: 5px solid #6c757d; }
-        
-        /* Tabs */
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] { height: 45px; background-color: #ffffff; border-radius: 4px; border: 1px solid #ddd; }
         .stTabs [aria-selected="true"] { background-color: #f0f2f6; border-bottom: 2px solid #ff4b4b; font-weight: bold; }
-        
-        /* Message Boxes */
-        .success-box { padding: 15px; background-color: #d1e7dd; color: #0f5132; border-radius: 5px; margin-bottom: 10px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -43,7 +30,6 @@ def inject_custom_css():
 # ==========================================
 
 def safe_float(val):
-    """Converts to float with 2-decimal precision, handling currency symbols."""
     if pd.isna(val) or str(val).strip() == "": return 0.0
     if isinstance(val, (int, float)): return round(float(val), 2)
     clean = re.sub(r'[^\d.-]', '', str(val))
@@ -51,7 +37,6 @@ def safe_float(val):
     except ValueError: return 0.0
 
 def safe_date(val):
-    """Robust date parsing for multiple formats."""
     if not val or pd.isna(val) or str(val).strip() == "": return None
     val = str(val).strip()
     formats = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%Y/%m/%d", "%d-%b-%y", "%d-%m-%y", "%d-%b"]
@@ -64,13 +49,11 @@ def safe_date(val):
     return None
 
 def get_next_id(df):
-    """Auto-increments ID."""
     if df.empty or 'ID' not in df.columns: return 1
     ids = pd.to_numeric(df['ID'], errors='coerce').fillna(0)
     return int(ids.max()) + 1 if not ids.empty else 1
 
 def check_duplicate(df, col_name, value, label="Entry", exclude_id=None):
-    """Prevents duplicate entries."""
     if df.empty or col_name not in df.columns: return False
     if exclude_id: df = df[df['ID'].astype(str) != str(exclude_id)]
     existing = df[col_name].astype(str).str.strip().str.lower().tolist()
@@ -165,7 +148,6 @@ def delete_row_by_id(sh, sheet_name, id_val):
     except: return False
 
 def init_sheets(sh):
-    """Ensures all sheets and headers exist on startup."""
     schema = {
         "Config": ["Key", "Value"],
         "Cards": ["ID", "Name", "First4", "Last4", "Limit", "GraceDays", "MatchCode"], 
@@ -180,39 +162,29 @@ def init_sheets(sh):
         "Card_Payments": ["ID", "CardID", "Year", "Month", "Date", "Amount", "Note"]
     }
     
-    # 1. ROBUST FETCH: Do not silence errors. If this fails, we need to know.
+    # FIX #1: Robust Initialization ignoring "Already Exists" errors
     try: 
         ws_list = api_retry(sh.worksheets)
         existing = [w.title for w in ws_list]
-    except Exception as e:
-        # If we can't read the DB, stop immediately rather than trying to overwrite
-        st.error(f"⚠️ Failed to connect to Google Sheets: {str(e)}")
-        st.stop()
+    except: existing = []
 
     for name, cols in schema.items():
         if name not in existing:
             try:
-                # Try to create the worksheet
                 ws = api_retry(sh.add_worksheet, title=name, rows=100, cols=20)
-                api_retry(ws.append_row, cols)
-                time.sleep(0.5) # Prevent rate limiting
+                api_retry(ws.append_row, cols); time.sleep(0.5)
             except gspread.exceptions.APIError as e:
-                # If error is "Sheet already exists" (Code 400), ignore it and move on
-                if "400" in str(e) or "already exists" in str(e).lower():
-                    pass
-                else:
-                    raise e # Re-raise if it's a real permission/quota error
+                # If sheet exists (race condition or previous fail), ignore error
+                if "400" in str(e) or "already exists" in str(e).lower(): pass
+                else: raise e
         else:
-            # Sync headers for existing sheets
             ws = api_retry(sh.worksheet, name)
             try: headers = api_retry(ws.row_values, 1)
             except: headers = []
-            
             new_headers = [c for c in cols if c not in headers]
-            if new_headers:
-                for i, h in enumerate(new_headers):
-                    api_retry(ws.update_cell, 1, len(headers) + i + 1, h)
-                    time.sleep(0.5)
+            for i, h in enumerate(new_headers):
+                api_retry(ws.update_cell, 1, len(headers) + i + 1, h); time.sleep(0.5)
+
 # ==========================================
 # 4. COMPONENT: EDITABLE GRID
 # ==========================================
@@ -240,13 +212,11 @@ def render_editable_grid(sh, df, sheet_name, key_prefix, hidden_cols=[]):
     if st.button(f"💾 Save Changes", key=f"btn_{key_prefix}"):
         to_delete = edited_df[edited_df["Delete"] == True]
         
-        # 1. Process Deletions with Warning if Bulk
         if not to_delete.empty:
             for _, row in to_delete.iterrows():
                 delete_row_by_id(sh, sheet_name, row['ID'])
             st.toast("🗑️ Rows deleted!", icon="✅")
             
-        # 2. Process Edits
         final_df = edited_df.drop(columns=["Delete"])
         original_cmp = df.copy().reset_index(drop=True)
         final_cmp = final_df.reset_index(drop=True)
@@ -426,8 +396,10 @@ def render_active_emis(sh, year, month):
                 st.toast("Paid!", icon="✅"); st.rerun()
 
     with tab_manage:
+        # FIX #2: Check for empty cards BEFORE starting the form
         if st.radio("Mode", ["Add", "Delete"], horizontal=True) == "Add":
-            if cards.empty: st.warning("Add a Credit Card first.")
+            if cards.empty:
+                st.warning("⚠️ You must add a Credit Card first.")
             else:
                 with st.form("add_e"):
                     cn = st.selectbox("Card", cards['Name'].unique())
@@ -480,7 +452,6 @@ def render_transactions(sh, year, month):
         if not tx.empty:
             curr_tx = tx[(tx['Year'] == year) & (tx['Month'] == month)]
             
-            # Editable Grid with Delete Checkbox
             edited_df = st.data_editor(
                 curr_tx, key="tx_grid",
                 column_config={"Delete": st.column_config.CheckboxColumn(required=True), "Amount": st.column_config.NumberColumn(format="₹%.2f")},
@@ -489,8 +460,6 @@ def render_transactions(sh, year, month):
             
             if st.button("💾 Apply Grid Changes"):
                 to_delete = edited_df[edited_df["Delete"] == True]
-                
-                # Deletion Confirmation Logic
                 if not to_delete.empty:
                     st.warning(f"⚠️ You are about to delete {len(to_delete)} transactions.")
                     if st.button("🔴 Confirm Permanent Deletion"):
@@ -498,7 +467,6 @@ def render_transactions(sh, year, month):
                         st.toast("🗑️ Deleted successfully!", icon="✅")
                         time.sleep(1); st.rerun()
                 else:
-                    # Update Non-Deleted Rows
                     update_full_sheet(sh, "Transactions", edited_df.drop(columns=["Delete"]))
                     st.toast("💾 Updates Saved!", icon="✅"); time.sleep(1); st.rerun()
         else: st.info("No transactions.")
@@ -544,9 +512,21 @@ def render_transactions(sh, year, month):
                                 dv = safe_date(d_str); av = safe_float(a_str)
                                 if dv and av > 0: entries.append([get_next_id(get_df(sh,"Transactions")), str(dv), year, month, "Expense", "PDF Import", av, "Imported", final_src])
                     else:
-                        if ext == 'csv': df = pd.read_csv(uploaded_file)
-                        elif ext == 'xlsx': df = pd.read_excel(uploaded_file, engine='openpyxl')
-                        elif ext == 'xls': df = pd.read_excel(uploaded_file, engine='xlrd')
+                        # FIX #3: Fallback logic for Excel engine mismatches
+                        if ext == 'csv': 
+                            df = pd.read_csv(uploaded_file)
+                        elif ext in ['xlsx', 'xls']:
+                            # Try openpyxl first (for valid xlsx)
+                            try:
+                                df = pd.read_excel(uploaded_file, engine='openpyxl')
+                            except Exception:
+                                # Fallback to xlrd (for binary xls or masked xlsx)
+                                try:
+                                    uploaded_file.seek(0)
+                                    df = pd.read_excel(uploaded_file, engine='xlrd')
+                                except Exception as e:
+                                    st.error(f"Failed to read file. Error: {e}")
+                                    st.stop()
                         
                         if df is not None:
                             df.columns = df.columns.astype(str).str.lower()
@@ -599,4 +579,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
