@@ -5,3 +5,4 @@ oauth2client
 python-dateutil
 pdfplumber
 openpyxl
+xlrd
