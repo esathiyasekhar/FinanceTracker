@@ -1,22 +1,3 @@
-This is a fantastic UX improvement. To achieve this efficiently in Streamlit (which is a data app framework, not a traditional website builder), the best approach is to use **Editable Grids (`st.data_editor`)**.
-
-Instead of cluttering the screen with hundreds of "Edit/Delete" buttons (which slows down the app), I have implemented **Interactive Tables**:
-
-1. **Edit:** You can click any cell (Date, Amount, Note) to change it directly.
-2. **Delete:** You tick a "Delete" checkbox next to the row.
-3. **Save:** You click one "Save Changes" button to update Google Sheets in one go.
-
-I have also added the **`EMI_Log`** sheet to track monthly payment history for Credit Card EMIs, just like we do for Loans.
-
-### 📋 Prerequisites
-
-No changes to `requirements.txt`.
-
-### 📄 Final Code: `finance_app.py`
-
-Replace your file with this version. It includes the **Editable Grids** and **EMI History Tracking**.
-
-```python
 import streamlit as st
 import pandas as pd
 import gspread
@@ -693,5 +674,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-```
