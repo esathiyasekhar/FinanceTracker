@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date, timedelta
-from dateutil.relativedelta import relativedelta
 import time
 import re
 import pdfplumber
@@ -40,13 +39,14 @@ def inject_custom_css():
 # ==========================================
 
 def safe_float(val):
-    """Robust conversion to float, handling currency symbols and empty strings."""
+    """Robust conversion to float with 2-decimal rounding for currency."""
     if pd.isna(val) or str(val).strip() == "": return 0.0
-    if isinstance(val, (int, float)): return float(val)
+    if isinstance(val, (int, float)): return round(float(val), 2)
+    
     # Remove everything except digits, dots, and minus signs
     clean = re.sub(r'[^\d.-]', '', str(val))
     try:
-        return float(clean)
+        return round(float(clean), 2)
     except ValueError:
         return 0.0
 
@@ -388,14 +388,14 @@ def render_credit_cards(sh, year, month):
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0;">{row['Name']} <span style="font-size:0.6em; color:#666;">({row.get('MatchCode','N/A')})</span></h3>
                     <div style="text-align:right;">
-                        <span style="font-size:1.2em; font-weight:bold;">Due: ₹{rem:,.0f}</span><br>
+                        <span style="font-size:1.2em; font-weight:bold;">Due: ₹{rem:,.2f}</span><br>
                         <small>{status_text}</small>
                     </div>
                 </div>
                 <div style="margin-top:10px; font-size:0.9em; display:flex; gap:15px;">
-                    <span>📜 Billed: <b>₹{curr_b:,.0f}</b></span>
-                    <span>✅ Paid: <b>₹{curr_p:,.0f}</b></span>
-                    <span>⏳ Unbilled: <b>₹{curr_unb:,.0f}</b></span>
+                    <span>📜 Billed: <b>₹{curr_b:,.2f}</b></span>
+                    <span>✅ Paid: <b>₹{curr_p:,.2f}</b></span>
+                    <span>⏳ Unbilled: <b>₹{curr_unb:,.2f}</b></span>
                 </div>
             </div>""", unsafe_allow_html=True)
 
@@ -519,7 +519,7 @@ def render_loans(sh, year, month):
                     <b>{row['Source']} <small>({row['Type']})</small></b> <span>{icon}</span>
                 </div>
                 <div style="margin-top:5px; font-size:0.9em;">
-                    EMI: <b>₹{safe_float(row['EMI']):,.0f}</b> | Outstanding: ₹{safe_float(row['Outstanding']):,.0f}
+                    EMI: <b>₹{safe_float(row['EMI']):,.2f}</b> | Outstanding: ₹{safe_float(row['Outstanding']):,.2f}
                 </div>
             </div>""", unsafe_allow_html=True)
             
@@ -589,7 +589,7 @@ def render_active_emis(sh, year, month):
         st.markdown(f"""
         <div class="card-container {style}">
              <div style="display:flex; justify-content:space-between;">
-                <b>{row['Item']}</b> <span>₹{safe_float(row['MonthlyEMI']):,.0f}/mo</span>
+                <b>{row['Item']}</b> <span>₹{safe_float(row['MonthlyEMI']):,.2f}/mo</span>
             </div>
             <small>Beneficiary: {row['Beneficiary']} | Total: {row['TotalVal']}</small>
         </div>""", unsafe_allow_html=True)
@@ -720,7 +720,9 @@ def render_transactions(sh, year, month):
                             df = pd.read_csv(uploaded_file)
                         else:
                             try: df = pd.read_excel(uploaded_file, engine='openpyxl')
-                            except: df = pd.read_excel(uploaded_file, engine='xlrd') # Fallback for old .xls
+                            except: 
+                                try: df = pd.read_excel(uploaded_file, engine='xlrd') # Fallback for old .xls
+                                except: st.error("Could not read Excel file. Check format."); st.stop()
                         
                         if df is not None:
                             df.columns = df.columns.astype(str).str.lower()
