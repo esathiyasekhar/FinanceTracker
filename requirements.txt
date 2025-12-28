@@ -6,3 +6,4 @@ python-dateutil
 pdfplumber
 openpyxl
 xlrd
+lxml
